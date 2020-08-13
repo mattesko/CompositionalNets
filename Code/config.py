@@ -1,6 +1,6 @@
 import logging
 import os
-from pathlib import PosixPath
+from pathlib import PosixPath, Path
 import pprint
 import torch
 
@@ -92,15 +92,25 @@ _C.DATA.CATEGORY = ['aeroplane', 'bicycle', 'bus', 'car', 'motorbike', 'train']
 # categories for training
 _C.DATA.CATEGORY_TRAIN = ['aeroplane', 'bicycle', 'boat', 'bottle', 'bus', 'car',
                           'chair', 'diningtable', 'motorbike', 'sofa', 'train', 'tvmonitor']
+# _C.DATA.CATEGORY_TRAIN = ['liver']
 
 # None means load from env variable.
-_C.DATA.BASE_DIR = PosixPath('data/')#None
-_C.DATA.MODEL_DIR = PosixPath('models/')#None
+_config_file_path = Path(__file__).resolve()
+_project_dir = os.path.dirname(_config_file_path.parent)
+
+_C.DATA.BASE_DIR = PosixPath(os.path.join(_project_dir, 'data'))#None
+_C.DATA.MODEL_DIR = PosixPath(os.path.join(_project_dir, 'models'))#None
+_C.DATA.BACKGROUND_DIR = PosixPath(os.path.join(_project_dir, 'background_images'))
 #_C.DATA.TENSORBOARD_DIR = None
 
 _C.GPUS = None
 
-_C.MODEL.OCC_TYPES = ['_white', '_noise', 'general']
+_C.MODEL.OCC_TYPES = ['_noise', '_white', 'general']
+# New occ types
+# _C.MODEL.OCC_TYPES = ['_general', '_pneumonia']
+# _C.MODEL.OCC_TYPES = ['_general', '_tumor']
+# _C.MODEL.OCC_TYPES = ['_general']
+
 _C.MODEL.COMPNET_TYPE = 'vmf'  # options: 'bernoulli','vmf'
 _C.MODEL.VMF_KAPPA = 30 # variance of vMF distribution
 _C.MODEL.VC_NUM = 512 # number of vMF kernels
@@ -237,6 +247,7 @@ def old_fashioned_config(cfg: AttrDict):
     categories = cfg.DATA.CATEGORY
     categories_train = cfg.DATA.CATEGORY_TRAIN
     dict_dir = cfg.DATA.DICT_DIR
+    background_dir = cfg.DATA.BACKGROUND_DIR
 
     # Return all local variables as a dict
     ret = locals()
