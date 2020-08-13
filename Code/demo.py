@@ -1,11 +1,11 @@
 import torch
 import numpy as np
 from torch.utils.data import DataLoader
-from config import categories, categories_train, dataset, data_path, device_ids, mix_model_path, dict_dir, layer, vMF_kappa, model_save_dir, compnet_type, backbone_type, num_mixtures
-from config import config as cfg
-from model import Net
-from helpers import Imgset, imgLoader, getVmfKernels, getCompositionModel, update_clutter_model
-from eval_occlusion_localization import visualize_response_map
+from .config import categories, categories_train, dataset, data_path, device_ids, mix_model_path, dict_dir, layer, vMF_kappa, model_save_dir, compnet_type, backbone_type, num_mixtures
+from .config import config as cfg
+from .model import Net
+from .helpers import Imgset, imgLoader, getVmfKernels, getCompositionModel, update_clutter_model
+from .eval_occlusion_localization import visualize_response_map
 import tqdm
 import torchvision.models as models
 import cv2

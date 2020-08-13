@@ -2,11 +2,11 @@ import os
 import torch
 import numpy as np
 from torch.utils.data import DataLoader
-from config import categories, categories_train, dataset, data_path, device_ids, mix_model_path, dict_dir, layer, vMF_kappa, model_save_dir, compnet_type, backbone_type, num_mixtures
-from config import config as cfg
-from model import Net
-from helpers import getImg, Imgset, imgLoader, getVmfKernels, getCompositionModel, update_clutter_model
-from model import resnet_feature_extractor
+from .config import categories, categories_train, dataset, data_path, device_ids, mix_model_path, dict_dir, layer, vMF_kappa, model_save_dir, compnet_type, backbone_type, num_mixtures
+from .config import config as cfg
+from .model import Net
+from .helpers import getImg, Imgset, imgLoader, getVmfKernels, getCompositionModel, update_clutter_model
+from .model import resnet_feature_extractor
 import tqdm
 import torchvision.models as models
 

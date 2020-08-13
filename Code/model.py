@@ -2,12 +2,12 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torchvision.models as models
-from Code.lib import ops
-from Code.config import device_ids, occ_types_vmf, occ_types_bern
-from Code.helpers import imgLoader
+from .lib import ops
+from .config import device_ids, occ_types_vmf, occ_types_bern, background_dir
+from .helpers import imgLoader
 import glob
-from Code.vMFMM import *
-
+from .vMFMM import *
+import pdb
 
 class ActivationLayer(nn.Module):
     """Compute activation of a Tensor. The activation could be a exponent or a
@@ -43,7 +43,6 @@ class Net(nn.Module):
         self.conv1o1 = Conv1o1Layer(weights)
         self.activation_layer = ActivationLayer(vMF_kappa, compnet_type,
                                                 threshold=vc_thresholds)
-
         clutter_model = self.get_clutter_model(
             compnet_type, vMF_kappa)
 
@@ -74,7 +73,7 @@ class Net(nn.Module):
 
     # TODO: merge this function with helpers.update_clutter_model
     def get_clutter_model(self, compnet_type, vMF_kappa):
-        idir = 'background_images/'
+        idir = background_dir
         vc_num = self.conv1o1.weight.shape[0]
 
         updated_models = torch.zeros((0, vc_num))
@@ -87,7 +86,7 @@ class Net(nn.Module):
             occ_types = occ_types_vmf
         elif self.compnet_type == 'bernoulli':
             occ_types = occ_types_bern
-
+        
         for j in range(len(occ_types)):
             occ_type = occ_types[j]
             with torch.no_grad():
@@ -117,6 +116,7 @@ class Net(nn.Module):
                     updated_models = torch.cat(
                         (updated_models, mean_vec.reshape(1, -1)))
                 else:
+#                     if (occ_type == '_pneumonia' or occ_type == 'pneumonia'):
                     if (occ_type == '_white' or occ_type == '_noise'):
                         mean_vec = torch.mean(
                             clutter_feats/mean_activation, dim=0)
@@ -127,10 +127,11 @@ class Net(nn.Module):
                         model = vMFMM(nc, 'k++')
                         model.fit(clutter_feats.cpu().numpy(),
                                   vMF_kappa, max_it=150, tol=1e-10)
-                        mean_vec = torch.zeros(
-                            nc, clutter_feats.shape[1]).cuda(gpu_id)
-                        mean_act = torch.zeros(
-                            nc, clutter_feats.shape[1]).cuda(gpu_id)
+                        mean_vec = torch.zeros(nc, clutter_feats.shape[1])
+                        mean_act = torch.zeros(nc, clutter_feats.shape[1])
+                        if boo_gpu:
+                            mean_vec = mean_vec.cuda(gpu_id)
+                            mean_act = mean_act.cuda(gpu_id)
                         clust_cnt = torch.zeros(nc)
                         for v in range(model.p.shape[0]):
                             assign = np.argmax(model.p[v])
@@ -138,12 +139,16 @@ class Net(nn.Module):
                             clust_cnt[assign] += 1
 
                         mean_vec_final = torch.zeros(
-                            sum(clust_cnt > 0), clutter_feats.shape[1]).cuda(gpu_id)
+                            sum(clust_cnt > 0), clutter_feats.shape[1])
+                        if boo_gpu:
+                            mean_vec_final = mean_vec_final.cuda(gpu_id)
                         cnt = 0
                         for v in range(mean_vec.shape[0]):
                             if clust_cnt[v] > 0:
-                                mean_vec_final[cnt] = (
-                                    mean_vec[v]/clust_cnt[v].cuda(gpu_id)).t()
+                                if boo_gpu:
+                                    mean_vec_final[cnt] = (mean_vec[v]/clust_cnt[v].cuda(gpu_id)).t()
+                                else:
+                                    mean_vec_final[cnt] = (mean_vec[v]/clust_cnt[v]).t()
                         updated_models = torch.cat(
                             (updated_models, mean_vec_final))
 
@@ -397,7 +402,10 @@ class Conv1o1Layer(nn.Module):
     def forward(self, x):
         weight = self.weight
         xnorm = torch.norm(x, dim=1, keepdim=True)
-        boo_zero = (xnorm == 0).type(torch.FloatTensor).to(device_ids[0])
+        if device_ids:
+            boo_zero = (xnorm == 0).type(torch.FloatTensor).to(device_ids[0])
+        else:
+            boo_zero = (xnorm == 0).type(torch.FloatTensor)
         xnorm = xnorm + boo_zero
         xn = x / xnorm
         wnorm = torch.norm(weight, dim=1, keepdim=True)
