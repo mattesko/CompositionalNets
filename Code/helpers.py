@@ -81,7 +81,7 @@ def getCompositionModel(device_id,mix_model_path,layer,categories,compnet_type='
     mix_models = []
     msz = []
     for i in range(len(categories)):
-	filename = mix_model_path + '/mmodel_' + categories[i] + '_K{}_FEATDIM{}_{}_specific_view.pickle'.format(num_mixtures, vc_num, layer)
+        filename = mix_model_path + '/mmodel_' + categories[i] + '_K{}_FEATDIM{}_{}_specific_view.pickle'.format(num_mixtures, vc_num, layer)
         mix = np.load(filename, allow_pickle=True)
         if compnet_type=='vmf':
             mix = np.array(mix)
