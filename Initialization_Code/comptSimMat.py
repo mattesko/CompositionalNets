@@ -1,11 +1,11 @@
 from joblib import Parallel, delayed
 from scipy.spatial.distance import cdist
-from vcdist_funcs import vc_dis_paral, vc_dis_paral_full
+from .vcdist_funcs import vc_dis_paral, vc_dis_paral_full
 import time
 import pickle
 import os
-from config_initialization import vc_num, dataset, categories, data_path, cat_test, device_ids, Astride, Apad, Arf,vMF_kappa, layer,init_path, dict_dir, sim_dir, extractor
-from Code.helpers import getImg, imgLoader, Imgset, myresize
+from .config_initialization import vc_num, dataset, categories, data_path, cat_test, device_ids, Astride, Apad, Arf,vMF_kappa, layer,init_path, dict_dir, sim_dir, extractor
+from CompositionalNets.Code.helpers import getImg, imgLoader, Imgset, myresize
 from torch.utils.data import DataLoader
 import numpy as np
 import math

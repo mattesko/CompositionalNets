@@ -3,15 +3,16 @@ from scipy.spatial.distance import cdist
 import os
 import pickle
 import numpy as np
-from config_initialization import vc_num, dataset, categories, data_path, cat_test, device_ids, Astride, Apad, Arf,vMF_kappa, layer,init_path, dict_dir, sim_dir, extractor, model_save_dir
-from Code.helpers import getImg, imgLoader, Imgset
+from .config_initialization import vc_num, dataset, categories, data_path, cat_test, device_ids, Astride, Apad, Arf,vMF_kappa, layer,init_path, dict_dir, sim_dir, extractor, model_save_dir
+from CompositionalNets.Code.helpers import getImg, imgLoader, Imgset
 from torch.utils.data import DataLoader
 import cv2
 import gc
 import matplotlib.pyplot as plt
 import scipy.io as sio
 
-dictfile=dict_dir+'dictionary_{}_{}.pickle'.format(layer,vc_num)
+dictfile = os.path.join(dict_dir, f'dictionary_{layer}_{vc_num}.pickle')
+# dictfile = os.path.join(dict_dir, f'dictionary_{layer}.pickle')
 print('loading {}'.format(dictfile))
 with open(dictfile, 'rb') as fh:
 	centers = pickle.load(fh)

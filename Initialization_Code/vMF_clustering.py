@@ -1,6 +1,6 @@
-from Code.vMFMM import *
-from config_initialization import vc_num, dataset, categories, data_path, cat_test, device_ids, Astride, Apad, Arf, vMF_kappa, layer,init_path, nn_type, dict_dir, offset, extractor
-from Code.helpers import getImg, imgLoader, Imgset, myresize
+from CompositionalNets.Code.vMFMM import *
+from .config_initialization import vc_num, dataset, categories, data_path, cat_test, device_ids, Astride, Apad, Arf, vMF_kappa, layer,init_path, nn_type, dict_dir, offset, extractor
+from CompositionalNets.Code.helpers import getImg, imgLoader, Imgset, myresize
 import torch
 from torch.utils.data import DataLoader
 import cv2
@@ -8,9 +8,14 @@ import glob
 import pickle
 import os
 
+# Number of images to train on per category
+# Clustering ignored after this threshold is met
 img_per_cat = 1000
-samp_size_per_img = 20
-imgs_par_cat =np.zeros(len(categories))
+
+# Number of feature vectors to sample from each image's feature map
+samp_size_per_img = 20 
+
+imgs_par_cat = np.zeros(len(categories))
 bool_load_existing_cluster = False
 bins = 4
 
@@ -37,8 +42,11 @@ for ii,data in enumerate(data_loader):
 			tmp = extractor(input.cuda(device_ids[0]))[0].detach().cpu().numpy()
 		height, width = tmp.shape[1:3]
 		img = cv2.imread(imgs[ii])
-
+    
+        # Crop image by some offset
 		tmp = tmp[:,offset:height - offset, offset:width - offset]
+        
+        # Flatten image at each channel
 		gtmp = tmp.reshape(tmp.shape[0], -1)
 		if gtmp.shape[1] >= samp_size_per_img:
 			rand_idx = np.random.permutation(gtmp.shape[1])[:samp_size_per_img]

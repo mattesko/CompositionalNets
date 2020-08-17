@@ -1,15 +1,29 @@
 import os
 import torchvision.models as models
-from Code.model import resnet_feature_extractor
+from CompositionalNets.Code.model import resnet_feature_extractor
+from CompositionalNets.Code.config import data_path, model_save_dir
 
 # Setup work
 device_ids = [0]
-data_path = 'data/'
-model_save_dir = 'models/'
 
 dataset = 'pascal3d+' # pascal3d+
-nn_type = 'vgg' #vgg, resnet50, resnext, resnet152
-vMF_kappa=30
+
+#vgg, resnet50, resnext, resnet152
+# TODO: Add the ability to use U-Net's bottleneck's output as the feature map
+# The U-Net trained on the CHAOS dataset most definitely extracts more meaningful
+# features than something pre-trained on ImageNet
+nn_type = 'vgg' 
+
+# vMF parameter
+vMF_kappa = 30
+
+# Number of vMF clusters, used as argument for cls_num in vMFMM init
+# This needs to the same as the extractor's output channel size
+# because the vMF clusters are used as weights for a Convolutional operation 
+# applied on the extractor's output feature map
+# Convolutional Function Dimension = [H * W * VC_NUM]
+# Feature Map Dimensions = [VC_NUM * H * W]
+# Convolutional Function * Feature Map Dimensions = vMF Activations
 vc_num = 512
 
 categories = ['aeroplane', 'bicycle', 'boat', 'bottle', 'bus', 'car', 'chair', 'diningtable', 'motorbike', 'sofa',
@@ -43,6 +57,8 @@ featDim_set = [64, 128, 256, 512, 512]  # feature dimension
 Arf_set = [6, 16, 44, 100, 212]  # receptive field size
 Apad_set = [2, 6, 18, 42, 90]  # padding size
 
+# Why are these initialized to those values?
+# Why an offset of 3?
 if layer =='pool4' or layer =='second':
 	Astride = Astride_set[3]
 	Arf = Arf_set[3]
