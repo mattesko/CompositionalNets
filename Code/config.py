@@ -86,13 +86,14 @@ _C = config     # short alias to avoid coding
 _C.NAME = 'default'
 
 # options: 'pascal3d+', 'mnist', 'cifar10', 'coco'
-_C.DATA.DATASET = 'pascal3d+'
+# _C.DATA.DATASET = 'pascal3d+'
+_C.DATA.DATASET = 'chaos'
 # categories for testing (vehicles only)
 _C.DATA.CATEGORY = ['aeroplane', 'bicycle', 'bus', 'car', 'motorbike', 'train']
 # categories for training
-_C.DATA.CATEGORY_TRAIN = ['aeroplane', 'bicycle', 'boat', 'bottle', 'bus', 'car',
-                          'chair', 'diningtable', 'motorbike', 'sofa', 'train', 'tvmonitor']
-# _C.DATA.CATEGORY_TRAIN = ['liver']
+# _C.DATA.CATEGORY_TRAIN = ['aeroplane', 'bicycle', 'boat', 'bottle', 'bus', 'car',
+#                           'chair', 'diningtable', 'motorbike', 'sofa', 'train', 'tvmonitor']
+_C.DATA.CATEGORY_TRAIN = ['liver']
 
 # None means load from env variable.
 _config_file_path = Path(__file__).resolve()
@@ -105,7 +106,9 @@ _C.DATA.BACKGROUND_DIR = PosixPath(os.path.join(_project_dir, 'background_images
 
 _C.GPUS = None
 
-_C.MODEL.OCC_TYPES = ['_noise', '_white', 'general']
+# _C.MODEL.OCC_TYPES = ['_noise', '_white', 'general']
+# _C.MODEL.OCC_TYPES = ['general', '_noise', '_white']
+_C.MODEL.OCC_TYPES = ['general']
 # New occ types
 # _C.MODEL.OCC_TYPES = ['_general', '_pneumonia']
 # _C.MODEL.OCC_TYPES = ['_general', '_tumor']
@@ -113,16 +116,30 @@ _C.MODEL.OCC_TYPES = ['_noise', '_white', 'general']
 
 _C.MODEL.COMPNET_TYPE = 'vmf'  # options: 'bernoulli','vmf'
 _C.MODEL.VMF_KAPPA = 30 # variance of vMF distribution
-_C.MODEL.VC_NUM = 512 # number of vMF kernels
+
+# number of vMF kernels
+# _C.MODEL.VC_NUM = 1024
+# _C.MODEL.VC_NUM = 512
+# _C.MODEL.VC_NUM = 256
+# _C.MODEL.VC_NUM = 128
+_C.MODEL.VC_NUM = 100
+# _C.MODEL.VC_NUM = 16
+# _C.MODEL.VC_NUM = 8
+# _C.MODEL.VC_NUM = 4
+# _C.MODEL.VC_NUM = 2
+
+# options: 'vgg', 'resnet50', 'resnext'
+# _C.MODEL.BACKBONE_TYPE = 'vgg'
+_C.MODEL.BACKBONE_TYPE = 'unet'
+# _C.MODEL.BACKBONE_TYPE = 'unet_lits'
+
 _C.MODEL.VC_THRESHOLD = 0.0 # this threshold would be needed if you would like to implement CompNets with Bernoulli distributions (see our WACV'20 paper)
-_C.MODEL.MIXTURE_NUM = 4 # number of mixture models per class
+_C.MODEL.MIXTURE_NUM = 1 # number of mixture models per class
 # options: 'pool5', 'pool4' if _C.MODEL.BACKBONE_TYPE is 'vgg'; 'last',
 # 'second' if _C.MODEL.BACKBONE_TYPE is 'resnet50', 'resnext'. None
 # means default layer, i.e. 'pool5' for 'vgg' and 'last' for 'resnet50',
 # 'resnext', 'densenet'.
 _C.MODEL.LAYER = 'pool5'
-# options: 'vgg', 'resnet50', 'resnext'
-_C.MODEL.BACKBONE_TYPE = 'vgg'
 
 ###############################################################################
 # Training configs
@@ -187,6 +204,12 @@ def finalize_configs(is_training: bool):
         if _C.MODEL.LAYER is None:
             _C.MODEL.LAYER = 'last'
         assert _C.MODEL.LAYER in {'last', 'second'}
+    elif _C.MODEL.BACKBONE_TYPE == 'unet':
+        if _C.MODEL.LAYER is None:
+            _C.MODEL.LAYER = 'pool5'
+    elif _C.MODEL.BACKBONE_TYPE == 'unet_lits':
+        if _C.MODEL.LAYER is None:
+            _C.MODEL.LAYER = 'pool5'
     else:
         raise ValueError('Unknown MODEL.BACKBONE_TYPE: {}'.format(
             _C.MODEL.BACKBONE_TYPE))

@@ -3,7 +3,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torchvision.models as models
 from .lib import ops
-from .config import device_ids, occ_types_vmf, occ_types_bern, background_dir
+from .config import device_ids, occ_types_vmf, occ_types_bern, background_dir, categories_train
 from .helpers import imgLoader
 import glob
 from .vMFMM import *
@@ -14,11 +14,14 @@ class ActivationLayer(nn.Module):
     binary thresholding.
     """
 
-    def __init__(self, vMF_kappa, compnet_type, threshold=0.0):
-        super(ActivationLayer, self).__init__()
+    def __init__(self, vMF_kappa, compnet_type, threshold=0.0, 
+                 do_maxpool=False):
+        super().__init__()
         self.vMF_kappa = vMF_kappa
         self.compnet_type = compnet_type
         self.threshold = threshold
+        self.do_maxpool = do_maxpool
+        self.maxpool = nn.MaxPool2d(3) if do_maxpool else None
 
     def forward(self, x):
         if self.compnet_type == 'vmf':
@@ -26,13 +29,16 @@ class ActivationLayer(nn.Module):
                 (x > self.threshold).type_as(x)
         elif self.compnet_type == 'bernoulli':
             x = (x > self.threshold).type_as(x)
+        if self.do_maxpool:
+            x = self.maxpool(x)
         return x
 
 
 class Net(nn.Module):
     def __init__(self, backbone, weights, vMF_kappa, occ_likely, mix_model,
-                 bool_mixture_bg, compnet_type, num_mixtures, vc_thresholds):
-        super(Net, self).__init__()
+                 bool_mixture_bg, compnet_type, num_mixtures, vc_thresholds,
+                maxpool_activations=False, occlusion_threshold=None):
+        super().__init__()
         self.backbone = backbone
         self.occ_likely = occ_likely
         self.compnet_type = compnet_type
@@ -41,8 +47,10 @@ class Net(nn.Module):
         self.mix_model = torch.nn.Parameter(mix_model)
         self.use_mixture_bg = bool_mixture_bg
         self.conv1o1 = Conv1o1Layer(weights)
+        self.deconv1o1 = Deconv1o1Layer(weights)
         self.activation_layer = ActivationLayer(vMF_kappa, compnet_type,
-                                                threshold=vc_thresholds)
+                                                threshold=vc_thresholds,
+                                                do_maxpool=maxpool_activations)
         clutter_model = self.get_clutter_model(
             compnet_type, vMF_kappa)
 
@@ -52,7 +60,7 @@ class Net(nn.Module):
         self.softmax = SoftMaxTemp(torch.tensor(2.0))
         self.occlusionextract = OcclusionMaskExtractor(
             occ_likely, mix_model, clutter_model, self.num_classes,
-            self.use_mixture_bg, self.compnet_type, self.num_mixtures)
+            self.use_mixture_bg, self.compnet_type, self.num_mixtures, occlusion_threshold)
 
     def forward(self, x):
         vgg_feat = self.backbone(x)
@@ -62,6 +70,24 @@ class Net(nn.Module):
         mix_likeli = mix_likeli/(vgg_feat.shape[2]*vgg_feat.shape[3])
         soft = self.softmax(mix_likeli)
         return soft, vgg_feat, mix_likeli
+    
+    def vc_activation_deconv(self, x):
+        vgg_feat = self.backbone(x)
+        vc_activations = self.conv1o1(vgg_feat)
+        vmf_activations = self.activation_layer(vc_activations)
+        deconvs = self.deconv1o1(vc_activations)
+        return deconvs
+    
+    def vmf_activations(self, x):
+        vgg_feat = self.backbone(x)
+        vc_activations = self.conv1o1(vgg_feat)
+        vmf_activations = self.activation_layer(vc_activations)
+        return vmf_activations
+    
+    def vc_activations(self, x):
+        vgg_feat = self.backbone(x)
+        vc_activations = self.conv1o1(vgg_feat)
+        return vc_activations
 
     def get_occlusion(self, x, label):
         vgg_feat = self.backbone(x)
@@ -123,7 +149,7 @@ class Net(nn.Module):
                         updated_models = torch.cat(
                             (updated_models, mean_vec.reshape(1, -1)))
                     else:
-                        nc = 5
+                        nc = len(categories_train)
                         model = vMFMM(nc, 'k++')
                         model.fit(clutter_feats.cpu().numpy(),
                                   vMF_kappa, max_it=150, tol=1e-10)
@@ -160,7 +186,8 @@ class Net(nn.Module):
 
 class PointwiseInferenceLayer(nn.Module):
     def __init__(self, occ_likely, mix_model, clutter_model, num_classes,
-                 use_mixture_bg, compnet_type, num_mixtures):
+                 use_mixture_bg, compnet_type, num_mixtures, 
+                 bg_fg_threshold=None):
         super(PointwiseInferenceLayer, self).__init__()
         self.bool_occ = np.sum(np.asarray(occ_likely)) != 0
         self.occ_likely = occ_likely
@@ -176,6 +203,7 @@ class PointwiseInferenceLayer(nn.Module):
             self.const_pad_val = 0.0
         elif self.compnet_type == 'bernoulli':
             self.const_pad_val = np.log(1 / (1 - 1e-3))
+        self.bg_fg_threshold = bg_fg_threshold
 
     def forward(self, *inputs):
         input, = inputs
@@ -234,13 +262,17 @@ class PointwiseInferenceLayer(nn.Module):
         if not self.bool_occ:
             background *= -np.inf
         # n_batch, n_class, n_mixture, n_clutter
+#         if self.bg_fg_threshold:
+        
+        # Can set a threshold instead of taking maximum
         per_model_score = torch.max(foreground, background).sum((-1, -2))
         scores = per_model_score.max(axis=-1)[0].max(axis=-1)[0]
         return scores
 
 
 class OcclusionMaskExtractor(nn.Module):
-    def __init__(self, occ_likely, mix_model, clutter_model, num_classes, use_mixture_bg, compnet_type, num_mixtures):
+    def __init__(self, occ_likely, mix_model, clutter_model, num_classes, 
+                 use_mixture_bg, compnet_type, num_mixtures, occlusion_threshold=None):
         super(OcclusionMaskExtractor, self).__init__()
         self.bool_occ = np.sum(np.asarray(occ_likely)) != 0
         self.occ_likely = occ_likely
@@ -252,6 +284,7 @@ class OcclusionMaskExtractor(nn.Module):
         self.use_mixture_bg = use_mixture_bg
         self.compnet_type = compnet_type
         self.num_mixtures = num_mixtures
+        self.occlusion_threshold = occlusion_threshold
 
     def forward(self, x, label, cate_inx=None, attention=None):
         result = []
@@ -297,6 +330,7 @@ class OcclusionMaskExtractor(nn.Module):
         #attention = attention.repeat(self.num_clutter_models*4, 1, 1)
         # for inx in range(self.num_classes):
         #i = self.mix_model[inx]#
+        
         cm, hm, wm = mm.shape[1:]
         if hm < hx:
             diff1 = (hx - hm) // 2
@@ -319,9 +353,11 @@ class OcclusionMaskExtractor(nn.Module):
             background = torch.max(background, dim=0)[0]
         else:
             background = background.repeat(self.num_mixtures, 1, 1)
+        
 #        scores = torch.zeros(self.num_classes)
 #        if self.clutter_model.device.type != 'cpu':
 #            scores = scores.to(device_ids[0])
+
         inx = label
         mix_class = mm[inx*self.num_mixtures:(inx+1)*self.num_mixtures]
         if self.compnet_type == 'vmf':
@@ -333,14 +369,21 @@ class OcclusionMaskExtractor(nn.Module):
                           ).sum(1) + np.log(1.0 - occ_likely)
         if not self.use_mixture_bg:
             foreground = foreground.repeat(num_clutter_models, 1, 1)
-
+        
         scores = torch.max(foreground, background).sum([1, 2])
+#         scores = torch.max(foreground, torch.Tensor([20]).cuda()).sum([1,2])
+
         idx = torch.argmax(scores)
         score = scores[idx]
-        if self.use_mixture_bg:
-            occ = background - foreground[idx]
+        
+        if self.occlusion_threshold:
+            occ = self.occlusion_threshold - foreground[idx]
         else:
-            occ = background[idx] - foreground[idx]
+            if self.use_mixture_bg:
+                occ = background - foreground[idx]
+            else:
+                occ = background[idx] - foreground[idx]
+        
         if not self.use_mixture_bg:
             part_scores = torch.log((v * mix_class[idx/self.num_mixtures]) + 1e-10)
         else:
@@ -396,7 +439,7 @@ def resnet_feature_extractor(type, layer='last'):
 
 class Conv1o1Layer(nn.Module):
     def __init__(self, weights):
-        super(Conv1o1Layer, self).__init__()
+        super().__init__()
         self.weight = nn.Parameter(weights)
 
     def forward(self, x):
@@ -413,6 +456,28 @@ class Conv1o1Layer(nn.Module):
         out = F.conv2d(xn, weightnorm2)
         if torch.sum(torch.isnan(out)) > 0:
             print('isnan conv1o1')
+        return out
+    
+    
+class Deconv1o1Layer(nn.Module):
+    def __init__(self, weights):
+        super(Deconv1o1Layer, self).__init__()
+        self.weight = nn.Parameter(weights)
+
+    def forward(self, x):
+        weight = self.weight
+        xnorm = torch.norm(x, dim=1, keepdim=True)
+        if device_ids:
+            boo_zero = (xnorm == 0).type(torch.FloatTensor).to(device_ids[0])
+        else:
+            boo_zero = (xnorm == 0).type(torch.FloatTensor)
+        xnorm = xnorm + boo_zero
+        xn = x / xnorm
+        wnorm = torch.norm(weight, dim=1, keepdim=True)
+        weightnorm2 = weight / wnorm
+        out = F.conv_transpose2d(xn, weightnorm2)
+        if torch.sum(torch.isnan(out)) > 0:
+            print('isnan deconv1o1')
         return out
 
 

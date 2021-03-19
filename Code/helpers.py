@@ -3,13 +3,13 @@ import torch
 import cv2
 import glob
 import torch.nn.functional as F
-from .config import vc_num, categories, occ_types_vmf, occ_types_bern, background_dir
+from .config import vc_num, categories, occ_types_vmf, occ_types_bern, background_dir, categories_train
 from .vMFMM import *
 from torchvision import transforms
 from PIL import Image
 
 
-def update_clutter_model(net,device_ids,compnet_type='vmf'):
+def update_clutter_model(net,device_ids,compnet_type='vmf',tol=5e-5):
     idir = background_dir
     updated_models = torch.zeros((0,vc_num))
     if device_ids:
@@ -22,8 +22,9 @@ def update_clutter_model(net,device_ids,compnet_type='vmf'):
 
     for j in range(len(occ_types)):
         occ_type = occ_types[j]
+        files = glob.glob(idir + '*'+occ_type+'.JPEG')
+        if len(files) == 0: continue
         with torch.no_grad():
-            files = glob.glob(idir + '*'+occ_type+'.JPEG')
             clutter_feats = torch.zeros((0,vc_num))
             if device_ids:
                 clutter_feats=clutter_feats.cuda(device_ids[0])
@@ -43,13 +44,14 @@ def update_clutter_model(net,device_ids,compnet_type='vmf'):
                 mean_vec = torch.mean(clutter_feats[boo]/mean_activation[boo], dim=0)
                 updated_models = torch.cat((updated_models, mean_vec.reshape(1, -1)))
             else:
-                if (occ_type == '_pneumonia' or occ_type == 'pneumonia'):
+                if occ_type== '_white' or occ_type== '_noise':
                     mean_vec = torch.mean(clutter_feats/mean_activation, dim=0)  # F.normalize(torch.mean(clutter_feats,dim=0),p=1,dim=0)#
                     updated_models = torch.cat((updated_models, mean_vec.reshape(1, -1)))
                 else:
-                    nc = 5
+                    nc = len(categories_train)
                     model = vMFMM(nc, 'k++')
-                    model.fit(clutter_feats.cpu().numpy(), 30.0, max_it=150)
+                    model.fit(clutter_feats.cpu().numpy(), 30.0, max_it=150, 
+                              tol=tol, verbose=False)
                     mean_vec = torch.zeros(nc,clutter_feats.shape[1])
                     if device_ids:
                         mean_vec = mean_vec.cuda(device_ids[0])
@@ -81,8 +83,10 @@ def getCompositionModel(device_id,mix_model_path,layer,categories,compnet_type='
     mix_models = []
     msz = []
     for i in range(len(categories)):
-        filename = mix_model_path + '/mmodel_' + categories[i] + '_K{}_FEATDIM{}_{}_specific_view.pickle'.format(num_mixtures, vc_num, layer)
-        mix = np.load(filename, allow_pickle=True)
+        
+        filename = f'mmodel_{str(categories[i])}_K{num_mixtures}_FEATDIM{vc_num}_{layer}_specific_view.pickle'
+        filepath = os.path.join(mix_model_path, filename)
+        mix = np.load(filepath, allow_pickle=True)
         if compnet_type=='vmf':
             mix = np.array(mix)
         elif compnet_type == 'bernoulli':

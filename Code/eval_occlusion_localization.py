@@ -19,12 +19,15 @@ def frange(x, y, jump):
         yield x
         x += jump
 
-def eval_occ_detection(occ_scores,occ_mask_gt):
+def eval_occ_detection(occ_scores,occ_mask_gt, thresholds=[]):
     locc_scores = []
     occ_scores = -occ_scores
     minval = -100
     maxval = 100
-    for thresh in frange(minval, maxval, 0.05):
+    if not thresholds:
+        thresholds = frange(minval, maxval, 0.05)
+        
+    for thresh in thresholds:
         occ_mask = (occ_scores < thresh)
         tp = np.sum((occ_mask == True) * (occ_mask_gt == True))
         if tp == 0:
@@ -73,6 +76,17 @@ def visualize_response_map(rmap,tit,cbarmax=10.0, show=False):
     while loop:
         img = img[0:img.shape[0]-2,:,:]
         loop = np.sum(img[img.shape[0]-1,:,:]==255)==(img.shape[1]*3)
+    
+    # remove white border left and right
+    loop = True
+    while loop:
+        img = img[:,1:img.shape[1],:]
+        loop = np.sum(img[:,0,:]==255)==(img.shape[0]*3)
+    loop = True
+    while loop:
+        img = img[:,0:img.shape[1]-2,:]
+        loop = np.sum(img[:,img.shape[1]-1,:]==255)==(img.shape[0]*3)
+    
     if not show:
         plt.close()
     return img

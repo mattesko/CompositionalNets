@@ -1,3 +1,4 @@
+import torch
 from sklearn.cluster import SpectralClustering
 from scipy.spatial.distance import cdist
 import os
@@ -5,38 +6,50 @@ import pickle
 import numpy as np
 from .config_initialization import vc_num, dataset, categories, data_path, cat_test, device_ids, Astride, Apad, Arf,vMF_kappa, layer,init_path, dict_dir, sim_dir, extractor, model_save_dir
 from CompositionalNets.Code.helpers import getImg, imgLoader, Imgset
+from CompositionalNets.Code.config import init_path, num_mixtures
 from torch.utils.data import DataLoader
 import cv2
 import gc
 import matplotlib.pyplot as plt
 import scipy.io as sio
 
-dictfile = os.path.join(dict_dir, f'dictionary_{layer}_{vc_num}.pickle')
-# dictfile = os.path.join(dict_dir, f'dictionary_{layer}.pickle')
-print('loading {}'.format(dictfile))
-with open(dictfile, 'rb') as fh:
-    centers = pickle.load(fh)
+# dictfile = os.path.join(dict_dir, f'dictionary_{layer}_{vc_num}_u.pickle')
+# print('loading {}'.format(dictfile))
+# with open(dictfile, 'rb') as fh:
+#     centers = pickle.load(fh)
 #####################
 # BEWARE
 #####################
 bool_pytroch = True
 bool_plot_view_p3d=False
 
-mixdir = init_path + 'mix_model_vmf_{}_EM_all/'.format(dataset)
-if not os.path.exists(mixdir):
-    os.makedirs(mixdir)
-occ_level='ZERO'
-occ_type=''
-spectral_split_thresh=0.1
+# mixdir = init_path + 'mix_model_vmf_{}_EM_all/'.format(dataset)
+# if not os.path.exists(mixdir):
+#     os.makedirs(mixdir)
+# occ_level='ZERO'
+# occ_type=''
+# spectral_split_thresh=0.1
 
 
-def learn_mix_model_vMF(category,num_layers = 2,num_clusters_per_layer = 2,frac_data=1.0):
-
-    imgs, labels, masks = getImg('train', [category], dataset, data_path, cat_test, occ_level, occ_type, bool_load_occ_mask=False)
-    # similarity matrix
-    sim_fname = model_save_dir+'init_vgg/'+'similarity_vgg_pool4/'+'simmat_mthrh045_{}_K{}.pickle'.format(category, 512)
-
+def learn_mix_model_vMF(data_loader, category, sim_matrix_name,
+                        sim_dir_name='similarity_vgg_pool5',
+                        dict_filename=f'dictionary_{layer}_{vc_num}_u.pickle',
+                        mixdir_name=f'mix_model_vmf_{dataset}_EM_all/',
+                        num_layers=2, num_clusters_per_layer=2, 
+                        frac_data=1.0, occ_level='ZERO', occ_type='', 
+                        spectral_split_thresh=0.1,
+                       im_channels=3):
+    
+    dictfile = os.path.join(dict_dir, dict_filename)
+    with open(dictfile, 'rb') as fh:
+        centers = pickle.load(fh)
+        
+    mixdir = os.path.join(init_path, mixdir_name)
+    if not os.path.exists(mixdir):
+        os.makedirs(mixdir)
+    
     # Spectral clustering based on the similarity matrix
+    sim_fname = os.path.join(init_path, sim_dir_name, sim_matrix_name)
     with open(sim_fname, 'rb') as fh:
         mat_dis1, _ = pickle.load(fh)
 
@@ -46,17 +59,22 @@ def learn_mix_model_vMF(category,num_layers = 2,num_clusters_per_layer = 2,frac_
     print('total number of instances for obj {}: {}'.format(category, subN))
     N=subN
     img_idx = np.asarray([nn for nn in range(N)])
-    imgs = imgs[:N]
-
-    imgset = Imgset(imgs, masks, labels, imgLoader, bool_square_images=False)
-    data_loader = DataLoader(dataset=imgset, batch_size=1, shuffle=False)
+    X = data_loader.dataset.X
+    if type(X) == torch.Tensor:
+        imgs = X[:N].permute(0, 2, 3, 1).numpy()
+    elif type(X) == list:
+        imgs = [x.permute(1, 2, 0).numpy() for x in X]
+    else:
+        imgs = X
 
     r_set = []#[None for nn in range(N)]
     #layer_features 	  =	np.zeros((N,featDim,max_1,max_2),dtype=np.float32)
     for ii,data in enumerate(data_loader):
-        if np.mod(ii,100)==0:
-            print('{} / {}'.format(ii,N))
-        input, mask, label = data
+        if len(data) == 3:
+            input, mask, label = data
+        elif len(data) == 2:
+            input, label = data
+            
         layer_feature = extractor(input.cuda(device_ids[0]))[0].detach().cpu().numpy()
         iheight,iwidth = layer_feature.shape[1:3]
         lff = layer_feature.reshape(layer_feature.shape[0],-1).T
@@ -162,6 +180,7 @@ def learn_mix_model_vMF(category,num_layers = 2,num_clusters_per_layer = 2,frac_
         print('cluster {} has {} samples'.format(kk, np.sum(mixmodel_lbs==kk)))
 
     alpha = []
+#     if num_mixtures > 1:
     for kk in range(K):
         # get samples for mixture component
         bool_clust = mixmodel_lbs==kk
@@ -244,29 +263,49 @@ def learn_mix_model_vMF(category,num_layers = 2,num_clusters_per_layer = 2,frac_
         img_ids_kk = img_idx[mixmodel_lbs == kk]
         width = 300
         height = 150
-        canvas = np.zeros((0,4*width,3))
+        if im_channels == 3:
+            canvas = np.zeros((0,4*width,3))
+        elif im_channels == 1:
+            canvas = np.zeros((0,4*width))
         cnt = 0
         for jj in range(4):
-            row = np.zeros((height,0,3))
+            if im_channels == 3:
+                row = np.zeros((height,0,3))
+            elif im_channels == 1:
+                row = np.zeros((height,0))
             for ii in range(4):
                 if cnt< len(img_ids_kk):
-                    img = cv2.imread(imgs[img_ids_kk[cnt]])
+#                     img = cv2.imread(imgs[img_ids_kk[cnt]])
+#                     import pdb
+#                     pdb.set_trace()
+                    img = imgs[img_ids_kk[cnt]]
                 else:
-                    img = np.zeros((height,width,3))
+                    if im_channels == 3:
+                        img = np.zeros((height,width,3))
+                    elif im_channels == 1:
+                        img = np.zeros((height,width))
                 if not (dataset == 'mnist' or dataset == 'cifar10' or dataset == 'coco'):
                     img = cv2.resize(img, (width,height))
                 row = np.concatenate((row,img),axis=1)
                 cnt+=1
             canvas = np.concatenate((canvas,row),axis=0)
-        cv2.imwrite(clust_img_dir+category+'_{}.JPEG'.format(kk),canvas)
+        path = os.path.join(clust_img_dir, f'{category}_{kk}.JPEG')
+        cv2.imwrite(path, canvas)
 
-    savename = os.path.join(mixdir,'mmodel_{}_K4_FEATDIM{}_{}_specific_view.pickle'.format(category, vc_num, layer))
+    savename = os.path.join(mixdir,'mmodel_{}_K{}_FEATDIM{}_{}_specific_view.pickle'.format(category, num_mixtures, vc_num, layer))
     with open(savename, 'wb') as fh:
         pickle.dump(alpha, fh)
 
 if __name__=='__main__':
     for category in categories:
         for num_layers in [2]:
-            learn_mix_model_vMF(category,num_layers=num_layers,num_clusters_per_layer=2)
+            
+            imgs, labels, masks = getImg('train', [category], dataset, data_path, cat_test, occ_level, occ_type, bool_load_occ_mask=False)
+            imgset = Imgset(imgs, masks, labels, imgLoader, bool_square_images=False)
+            data_loader = DataLoader(dataset=imgset, batch_size=1, shuffle=False)
+    
+            learn_mix_model_vMF(data_loader, category,
+                            sim_matrix_name=f'simmat_mthrh045_{category}_K{vc_num}.pickle',
+                            num_layers=num_layers, num_clusters_per_layer=2)
 
     print('DONE')
